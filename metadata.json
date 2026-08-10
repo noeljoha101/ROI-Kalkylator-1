@@ -1,0 +1,6 @@
+{
+  "name": "ROI-kalkylator: Sjukfrånvaro",
+  "description": "En interaktiv kalkylator för att beräkna företags kostnad för sjukfrånvaro och visa ROI på företagshälsovård.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

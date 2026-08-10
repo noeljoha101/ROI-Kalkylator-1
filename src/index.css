@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Roboto", ui-sans-serif, system-ui, sans-serif;
+  --font-condensed: "Roboto Condensed", ui-sans-serif, system-ui, sans-serif;
+}

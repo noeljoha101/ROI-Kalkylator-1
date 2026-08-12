@@ -102,20 +102,19 @@ export default function App() {
     };
 
     try {
-      // HÄR KOPPLAR VI IN ZAPIER ELLER MAKE.COM
-      // Byt ut URL:en nedan mot er unika Webhook URL
-      // const WEBHOOK_URL = "https://hook.eu1.make.com/din-webhook-url-här";
+      const WEBHOOK_URL = "/api/send-roi";
       
-      // await fetch(WEBHOOK_URL, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(payload)
-      // });
+      const response = await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-      console.log("Lead form submitted till Webhook:", payload);
-      
-      // Vi simulerar ett nätverksanrop på 1.5 sekunder för användarupplevelsen
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      if (!response.ok) {
+        throw new Error('Failed to send email');
+      }
+
+      console.log("Lead form submitted till backend:", payload);
       
       setIsSubmitted(true);
     } catch (error) {

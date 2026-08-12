@@ -17,7 +17,7 @@ export default async function handler(req: any, res: any) {
   const resend = new Resend(resendApiKey);
 
   try {
-    const { email, firstName, lastName, phone, company, calculatorData } = req.body || {};
+    const { email, name, phone, company, calculatorData } = req.body || {};
 
     if (!email || !calculatorData) {
       return res.status(400).json({ error: 'Obligatoriska fält saknas (email eller calculatorData)' });
@@ -25,7 +25,7 @@ export default async function handler(req: any, res: any) {
 
     const senderEmail = 'Hälsokalkylatorn <resultat@ditt-resultat.se>';
     const adminEmail = process.env.ADMIN_EMAIL || 'noeljohansson.tech@gmail.com';
-    const userName = firstName ? `${firstName} ${lastName || ''}`.trim() : 'Kund';
+    const userName = name || 'Kund';
     const companyText = company ? ` på ${company}` : '';
 
     const calcData = {
@@ -40,7 +40,7 @@ export default async function handler(req: any, res: any) {
     const formatCurrency = (val: number) =>
       new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(val);
 
-    const adminName = (firstName || lastName) ? `${firstName || ''} ${lastName || ''}`.trim() : 'Ej angivet';
+    const adminName = name || 'Ej angivet';
     const adminPhone = phone || 'Ej angivet';
     const adminCompany = company || 'Ej angivet';
 

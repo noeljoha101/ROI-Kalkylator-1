@@ -19,7 +19,7 @@ export default async function handler(req: any, res: any) {
       console.error("Missing RESEND_API_KEY environment variable");
       return res.status(500).json({ error: "Server configuration error" });
     }
-    const resend = new Resend(resendApiKey);
+    const resend = new Resend(resendApiKey, { baseUrl: 'https://api.eu.resend.com' });
 
     const senderEmail = "Hälsokalkylatorn <resultat@ditt-resultat.se>";
     

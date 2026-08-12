@@ -51,7 +51,8 @@ export default function App() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
-    name: '',
+    firstName: '',
+    lastName: '',
     company: '',
     email: '',
     phone: ''
@@ -399,15 +400,26 @@ export default function App() {
                 </p>
 
                 <form onSubmit={handleFormSubmit} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Namn</label>
-                    <input 
-                      required
-                      type="text" 
-                      value={formData.name}
-                      onChange={e => setFormData({...formData, name: e.target.value})}
-                      className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#BA590C]/20 focus:border-[#BA590C]"
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Förnamn</label>
+                      <input 
+                        required
+                        type="text" 
+                        value={formData.firstName}
+                        onChange={e => setFormData({...formData, firstName: e.target.value})}
+                        className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#BA590C]/20 focus:border-[#BA590C]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Efternamn</label>
+                      <input 
+                        type="text" 
+                        value={formData.lastName}
+                        onChange={e => setFormData({...formData, lastName: e.target.value})}
+                        className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#BA590C]/20 focus:border-[#BA590C]"
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Företag</label>

@@ -17,7 +17,7 @@ export default async function handler(req: any, res: any) {
   const resend = new Resend(resendApiKey);
 
   try {
-    const { email, name, phone, company, calculatorData } = req.body || {};
+    const { email, firstName, lastName, phone, company, calculatorData } = req.body || {};
 
     if (!email || !calculatorData) {
       return res.status(400).json({ error: 'Obligatoriska fält saknas (email eller calculatorData)' });
@@ -25,7 +25,7 @@ export default async function handler(req: any, res: any) {
 
     const senderEmail = 'Hälsokalkylatorn <resultat@ditt-resultat.se>';
     const adminEmail = process.env.ADMIN_EMAIL || 'noeljohansson.tech@gmail.com';
-    const userName = name || 'Kund';
+    const userName = firstName ? firstName.trim() : 'Kund';
     const companyText = company ? ` på ${company}` : '';
 
     const calcData = {
@@ -40,7 +40,7 @@ export default async function handler(req: any, res: any) {
     const formatCurrency = (val: number) =>
       new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(val);
 
-    const adminName = name || 'Ej angivet';
+    const adminName = (firstName || lastName) ? `${firstName || ''} ${lastName || ''}`.trim() : 'Ej angivet';
     const adminPhone = phone || 'Ej angivet';
     const adminCompany = company || 'Ej angivet';
 
@@ -55,7 +55,7 @@ export default async function handler(req: any, res: any) {
           <h1 style="margin: 0; color: #0f172a; font-size: 24px; font-weight: 700;">Hälsokalkylatorn</h1>
         </div>
         <div style="padding: 40px 30px;">
-          <p style="margin-top: 0; font-size: 16px;">Hej ${userName},</p>
+          <p style="margin-top: 0; font-size: 16px;">Hej ${userName}!</p>
           <p style="font-size: 16px;">Tack för att du använde vår kalkylator. Här är din sammanställning över sjukfrånvarons kostnader${companyText}.</p>
           
           <div style="margin: 30px 0;">

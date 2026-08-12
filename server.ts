@@ -139,7 +139,7 @@ async function startServer() {
       </ul>
       `;
       
-      const adminEmail = process.env.ADMIN_EMAIL || "admin@halsobolaget.se"; // Placeholder for admin email
+      const adminEmail = process.env.ADMIN_EMAIL || "noeljohansson.tech@gmail.com";
 
       // 2. Dual Emails
       const [userEmailResult, adminEmailResult] = await Promise.all([

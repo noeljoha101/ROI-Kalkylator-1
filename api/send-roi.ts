@@ -1,38 +1,46 @@
+import { Resend } from 'resend';
+
 export default async function handler(req: any, res: any) {
+  // 1. Endast POST-anrop tillåts
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: "Method not allowed" });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // 2. Kontrollera API-nyckeln
+  const resendApiKey = process.env.RESEND_API_KEY;
+  if (!resendApiKey) {
+    console.error('RESEND_API_KEY saknas i miljövariablerna');
+    return res.status(500).json({ error: 'Serverkonfigurationsfel: API-nyckel saknas' });
+  }
+
+  // 3. Initiera Resend SDK enligt officiell specifikation
+  const resend = new Resend(resendApiKey);
 
   try {
     const { email, firstName, lastName, phone, company, calculatorData } = req.body || {};
-    
+
     if (!email || !calculatorData) {
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({ error: 'Obligatoriska fält saknas (email eller calculatorData)' });
     }
 
-    const resendApiKey = process.env.RESEND_API_KEY;
-    if (!resendApiKey) {
-      console.error("Missing RESEND_API_KEY");
-      return res.status(500).json({ error: "Server configuration error: Missing API Key" });
-    }
-
-    const senderEmail = "Hälsokalkylatorn <resultat@ditt-resultat.se>";
-    const adminEmail = process.env.ADMIN_EMAIL || "noeljohansson.tech@gmail.com";
+    const senderEmail = 'Hälsokalkylatorn <resultat@ditt-resultat.se>';
+    const adminEmail = process.env.ADMIN_EMAIL || 'noeljohansson.tech@gmail.com';
     const userName = firstName ? `${firstName} ${lastName || ''}`.trim() : 'Kund';
     const companyText = company ? ` på ${company}` : '';
-    
+
     const calcData = {
       employees: calculatorData.employees || 0,
-      industry: calculatorData.industry || 'Okänd',
       sickLeavePercent: calculatorData.sickLeavePercent || 0,
       monthlySalary: calculatorData.monthlySalary || 0,
       calculatedAnnualCost: calculatorData.calculatedAnnualCost || 0,
       savingsMin: calculatorData.savingsMin || 0,
-      savingsMax: calculatorData.savingsMax || 0
+      savingsMax: calculatorData.savingsMax || 0,
     };
 
-    const formatCurrency = (val: number) => new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(val);
+    const formatCurrency = (val: number) =>
+      new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(val);
 
+    // E-postmall för kund
     const customerHtml = `
     <!DOCTYPE html>
     <html lang="sv">
@@ -41,7 +49,7 @@ export default async function handler(req: any, res: any) {
       <div style="max-width: 600px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px;">
         <h2>Hälsokalkylatorn</h2>
         <p>Hej ${userName},</p>
-        <p>Här är din sammanställning över sjukfrånvarons kostnader${companyText}:</p>
+        <p>Här är din kalkyl över sjukfrånvarons kostnader${companyText}:</p>
         <ul>
           <li><strong>Antal anställda:</strong> ${calcData.employees}</li>
           <li><strong>Sjukfrånvaro:</strong> ${calcData.sickLeavePercent}%</li>
@@ -53,6 +61,7 @@ export default async function handler(req: any, res: any) {
     </html>
     `;
 
+    // E-postmall för admin
     const adminHtml = `
     <h3>Nytt lead från kalkylatorn</h3>
     <p><strong>Namn:</strong> ${firstName || '-'} ${lastName || '-'}</p>
@@ -69,38 +78,38 @@ export default async function handler(req: any, res: any) {
     </ul>
     `;
 
-    // Hjälpfunktion för att skicka direkt mot Resends EU API
-    const sendEmailViaEU = async (to: string, subject: string, html: string) => {
-      const response = await fetch("https://api.eu.resend.com/emails", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${resendApiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          from: senderEmail,
-          to: [to],
-          subject: subject,
-          html: html
-        })
+    // 4. Skicka mail till kunden (Officiellt SDK-mönster)
+    const userResult = await resend.emails.send({
+      from: senderEmail,
+      to: [email],
+      subject: 'Din ROI-kalkyl för minskad sjukfrånvaro',
+      html: customerHtml,
+    });
+
+    // Kontrollera om Resend returnerade ett fel
+    if (userResult.error) {
+      console.error('Resend fel vid kundmail:', userResult.error);
+      return res.status(400).json({
+        error: 'Kunde inte skicka e-post till kund',
+        details: userResult.error.message,
       });
-      return await response.json();
-    };
-
-    // Skicka båda mailen
-    const [userRes, adminRes] = await Promise.all([
-      sendEmailViaEU(email, "Din ROI-kalkyl för minskad sjukfrånvaro", customerHtml),
-      sendEmailViaEU(adminEmail, `Nytt lead från kalkylatorn: ${company || email}`, adminHtml)
-    ]);
-
-    if (userRes.error) {
-      console.error("Resend EU Error (User):", userRes.error);
-      return res.status(500).json({ error: userRes.error });
     }
 
-    return res.status(200).json({ success: true });
-  } catch (error: any) {
-    console.error("Server Error:", error);
-    return res.status(500).json({ error: error.message || "Internal server error" });
+    // 5. Skicka mail till admin (Officiellt SDK-mönster)
+    const adminResult = await resend.emails.send({
+      from: senderEmail,
+      to: [adminEmail],
+      subject: `Nytt lead från kalkylatorn: ${company || email}`,
+      html: adminHtml,
+    });
+
+    if (adminResult.error) {
+      console.error('Resend fel vid adminmail:', adminResult.error);
+    }
+
+    return res.status(200).json({ success: true, id: userResult.data?.id });
+  } catch (err: any) {
+    console.error('Oväntat serverfel:', err);
+    return res.status(500).json({ error: 'Internt serverfel', message: err.message });
   }
 }

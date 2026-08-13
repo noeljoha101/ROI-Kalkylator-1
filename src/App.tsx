@@ -50,12 +50,15 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
     company: '',
     email: '',
-    phone: ''
+    phone: '',
+    website: '',
+    gdprConsent: false
   });
 
   // Update salary when industry changes, if the user hasn't heavily customized it (or just always update for simplicity)
@@ -84,12 +87,49 @@ export default function App() {
     'Efter åtgärder (-15%)': Math.round((totalAnnualCost - savingsMin) * i)
   }));
 
+  const handleEmployeesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = Number(e.target.value.replace(/\D/g, ''));
+    if (val > 50000) val = 50000;
+    setEmployees(val);
+  };
+
+  const handleSalaryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = Number(e.target.value.replace(/\D/g, ''));
+    if (val > 500000) val = 500000;
+    setMonthlySalary(val);
+  };
+
+  const handleSickLeaveChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = Number(e.target.value);
+    if (val > 100) val = 100;
+    if (val < 0) val = 0;
+    setSickLeavePercent(val);
+  };
+
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (formData.website) {
+      setIsSubmitted(true);
+      return;
+    }
+
+    const freeEmailProviders = ['gmail.com', 'hotmail.com', 'yahoo.com', 'outlook.com', 'live.se', 'hotmail.se'];
+    const emailDomain = formData.email.split('@')[1]?.toLowerCase();
+    if (freeEmailProviders.includes(emailDomain)) {
+      setFormError('Vänligen använd din företags-e-postadress för att få rapporten.');
+      return;
+    }
+
     setIsSubmitting(true);
+    setFormError('');
     
     const payload = {
-      ...formData,
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      company: formData.company,
+      email: formData.email,
+      phone: formData.phone,
       calculatorData: {
         employees,
         industry,
@@ -120,6 +160,7 @@ export default function App() {
       setIsSubmitted(true);
     } catch (error) {
       console.error("Kunde inte skicka kalkylen:", error);
+      setFormError('Något gick fel. Kunde inte skicka kalkylen just nu, vänligen försök igen.');
     } finally {
       setIsSubmitting(false);
     }
@@ -129,28 +170,47 @@ export default function App() {
     <div className="flex flex-col min-h-screen bg-[#fdfdfd] overflow-hidden text-slate-800 font-sans selection:bg-[#BA590C]/20">
       {/* Header */}
       <nav className="h-16 flex items-center justify-between px-6 md:px-10 border-b border-slate-100 bg-white shrink-0">
-        <a href="https://halsobolaget.se" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity">
-          <div className="relative w-[42px] h-[42px] rounded-full bg-gradient-to-br from-slate-300 via-slate-100 to-slate-400 p-[2.5px] shadow-sm flex items-center justify-center shrink-0">
-            <div className="w-full h-full rounded-full bg-gradient-to-b from-[#EF8F4A] to-[#BE5314] flex items-center justify-center shadow-[inset_0_2px_4px_rgba(0,0,0,0.1)]">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="url(#crossGradient)" className="drop-shadow-sm">
-                <defs>
-                  <linearGradient id="crossGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#ffffff" />
-                    <stop offset="100%" stopColor="#f1f5f9" />
-                  </linearGradient>
-                </defs>
-                <path d="M9 4 H15 V9 H20 V15 H15 V20 H9 V15 H4 V9 H9 Z" stroke="#ffffff" strokeWidth="0.5" strokeLinejoin="round" />
-              </svg>
-            </div>
+        <div className="flex items-center gap-12 md:gap-16">
+          <a href="https://halsobolaget.se" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity">
+            <svg width="42" height="42" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" className="shrink-0 drop-shadow-sm">
+              <defs>
+                <linearGradient id="metalGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#7a7a7a"/>
+                  <stop offset="25%" stopColor="#e8e8e8"/>
+                  <stop offset="50%" stopColor="#ffffff"/>
+                  <stop offset="75%" stopColor="#e8e8e8"/>
+                  <stop offset="100%" stopColor="#5a5a5a"/>
+                </linearGradient>
+                <linearGradient id="orangeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#f39556"/>
+                  <stop offset="50%" stopColor="#da6a28"/>
+                  <stop offset="100%" stopColor="#b33f15"/>
+                </linearGradient>
+                <linearGradient id="crossGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#ffffff"/>
+                  <stop offset="100%" stopColor="#f0ecf4"/>
+                </linearGradient>
+                <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+                  <feDropShadow dx="1" dy="1" stdDeviation="1.5" floodColor="#8a3711" floodOpacity="0.6"/>
+                </filter>
+              </defs>
+              <circle cx="50" cy="50" r="48" fill="url(#metalGradient)" stroke="#555" strokeWidth="1.5"/>
+              <circle cx="50" cy="50" r="40" fill="url(#orangeGradient)" stroke="#444" strokeWidth="1"/>
+              <path d="M 41 24 H 59 V 41 H 76 V 59 H 59 V 76 H 41 V 59 H 24 V 41 H 41 Z" 
+                    fill="url(#crossGradient)" 
+                    filter="url(#shadow)" 
+                    stroke="#eab28a" 
+                    strokeWidth="0.5"/>
+            </svg>
+            <span className="font-serif text-[26px] tracking-[0.08em] text-[#52525B] mt-1">
+              HÄLSOBOLAGET
+            </span>
+          </a>
+          <div className="hidden md:flex gap-8 text-sm font-condensed font-bold text-slate-500 uppercase tracking-widest mt-1">
+            <a href="https://halsobolaget.se" target="_blank" rel="noopener noreferrer" className="hover:text-[#BA590C] transition-colors">Tjänster</a>
+            <a href="https://halsobolaget.se/arbetsplatsen/riskbedomning-och-handlingsplaner/arbetsmiljokollen/" target="_blank" rel="noopener noreferrer" className="hover:text-[#BA590C] transition-colors">Arbetsmiljökollen</a>
+            <span className="text-slate-900 border-b-2 border-[#BA590C]">ROI Kalkylator</span>
           </div>
-          <span className="font-serif text-[26px] tracking-[0.08em] text-[#52525B] mt-1">
-            HÄLSOBOLAGET
-          </span>
-        </a>
-        <div className="hidden md:flex gap-8 text-sm font-condensed font-bold text-slate-500 uppercase tracking-widest">
-          <a href="https://halsobolaget.se" target="_blank" rel="noopener noreferrer" className="hover:text-[#BA590C] transition-colors">Tjänster</a>
-          <a href="https://halsobolaget.se" target="_blank" rel="noopener noreferrer" className="hover:text-[#BA590C] transition-colors">Arbetsmiljökollen</a>
-          <span className="text-slate-900 border-b-2 border-[#BA590C]">ROI Kalkylator</span>
         </div>
         <a 
           href="#result" 
@@ -182,7 +242,7 @@ export default function App() {
                 min="1" 
                 max="500" 
                 value={employees} 
-                onChange={(e) => setEmployees(Number(e.target.value))}
+                onChange={handleEmployeesChange}
                 className="w-full h-1 bg-slate-100 accent-[#BA590C] appearance-none cursor-pointer rounded-full"
               />
             </div>
@@ -220,10 +280,9 @@ export default function App() {
                 max="15" 
                 step="0.1"
                 value={sickLeavePercent} 
-                onChange={(e) => setSickLeavePercent(Number(e.target.value))}
+                onChange={handleSickLeaveChange}
                 className="w-full h-1 bg-slate-100 accent-[#BA590C] appearance-none cursor-pointer rounded-full"
               />
-              <p className="text-[10px] text-slate-400 italic text-right">Sveriges snitt: 5.3% (SCB)</p>
             </div>
 
             {/* Snittlön */}
@@ -231,9 +290,9 @@ export default function App() {
               <label className="text-xs font-bold uppercase tracking-wider text-slate-400">Snittlön (per månad)</label>
               <div className="relative">
                 <input 
-                  type="number" 
-                  value={monthlySalary}
-                  onChange={(e) => setMonthlySalary(Number(e.target.value))}
+                  type="text" 
+                  value={monthlySalary.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ")}
+                  onChange={handleSalaryChange}
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#BA590C]/20 pr-12"
                 />
                 <span className="absolute right-3 top-3 text-slate-400 text-xs font-medium">SEK</span>
@@ -243,10 +302,8 @@ export default function App() {
 
           <div className="mt-auto p-4 bg-slate-50 rounded-xl border border-slate-100 hidden md:block">
             <p className="text-[11px] leading-relaxed text-slate-500">
-              <span className="font-bold block mb-1 text-slate-600">TRANSPARENT BERÄKNING</span>
-              Kostnad per dag = (Månadslön / 21) × 1.4
-              <br />
-              Total kostnad = Anställda × 220 dagar × % × Dagskostnad
+              <span className="font-bold block mb-1 text-slate-600">SÅ HÄR RÄKNAR VI</span>
+              Kalkylen inkluderar lagstadgade arbetsgivaravgifter (31,42%) och schablon för indirekta kostnader (vikarier, administration och produktionsbortfall) med en faktor på 1.4x månadslönen. Beräknat på 220 arbetsdagar per år.
             </p>
           </div>
         </section>
@@ -323,7 +380,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 relative z-10 text-center sm:text-left">
                   <div className="w-24 h-32 bg-slate-50 border border-slate-200 rounded-sm shadow-sm flex flex-col justify-between p-3 shrink-0 group-hover:-translate-y-1 transition-transform relative">
                     <div className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-                      PDF
+                      KALKYL
                     </div>
                     <div className="space-y-1.5">
                       <div className="h-2 w-10 bg-[#BA590C] rounded-full"></div>
@@ -339,11 +396,11 @@ export default function App() {
                   <div className="flex-1">
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-50 text-[#BA590C] text-[10px] font-bold uppercase tracking-wider mb-3">
                       <Download className="w-3.5 h-3.5" />
-                      Din personliga rapport
+                      Din personliga kalkyl
                     </span>
-                    <h4 className="text-lg font-bold text-slate-800 mb-2 group-hover:text-[#BA590C] transition-colors">ROI & Åtgärdsplan för {industry}</h4>
+                    <h4 className="text-lg font-bold text-slate-800 mb-2 group-hover:text-[#BA590C] transition-colors">ROI-kalkyl för {industry}</h4>
                     <p className="text-sm text-slate-600 mb-5 leading-relaxed">
-                      Få en detaljerad nedbrytning av era kostnader på {formatCurrency(totalAnnualCost)} och en konkret steg-för-steg plan för hur ni kan minska frånvaron.
+                      Få en personlig ROI-kalkyl över er sjukfrånvaro direkt till din inkorg.
                     </p>
                     <button className="w-full sm:w-auto bg-[#BA590C] text-white px-6 py-3 rounded-md font-bold text-sm uppercase tracking-wider hover:bg-[#994708] transition-colors flex items-center justify-center gap-2 shadow-sm">
                       <Mail className="w-4 h-4" />
@@ -394,9 +451,9 @@ export default function App() {
                 <div className="w-12 h-12 bg-[#FAF7F5] rounded-full flex items-center justify-center mb-4">
                   <Download className="w-6 h-6 text-[#BA590C]" />
                 </div>
-                <h3 className="text-2xl font-condensed font-bold text-slate-800 mb-2 uppercase tracking-tight">Få er skräddarsydda ROI-rapport</h3>
+                <h3 className="text-2xl font-condensed font-bold text-slate-800 mb-2 uppercase tracking-tight">Få er skräddarsydda ROI-kalkyl</h3>
                 <p className="text-slate-600 mb-6 text-sm">
-                  Fyll i dina uppgifter så skickar vi er detaljerade kostnadskalkyl som en PDF till din e-post, och visar hur ni kan sänka kostnaderna.
+                  Fyll i dina uppgifter så skickar vi er personliga ROI-kalkyl över sjukfrånvaron direkt till din inkorg.
                 </p>
 
                 <form onSubmit={handleFormSubmit} className="space-y-4">
@@ -452,15 +509,48 @@ export default function App() {
                     />
                   </div>
                   
+                  {/* Honeypot field (hidden) */}
+                  <div className="sr-only" aria-hidden="true">
+                    <label>Website</label>
+                    <input 
+                      type="text" 
+                      name="website"
+                      tabIndex={-1}
+                      autoComplete="off"
+                      value={formData.website}
+                      onChange={e => setFormData({...formData, website: e.target.value})}
+                    />
+                  </div>
+
+                  <div className="flex items-start gap-3 mt-4 mb-2">
+                    <input 
+                      type="checkbox" 
+                      id="gdpr"
+                      required
+                      checked={formData.gdprConsent}
+                      onChange={e => setFormData({...formData, gdprConsent: e.target.checked})}
+                      className="mt-1 w-4 h-4 text-[#BA590C] bg-white border-slate-300 rounded focus:ring-[#BA590C]"
+                    />
+                    <label htmlFor="gdpr" className="text-xs text-slate-600 leading-relaxed">
+                      Jag godkänner att mina uppgifter lagras för att kunna skicka rapporten och kontakta mig, i enlighet med integritetspolicyn.
+                    </label>
+                  </div>
+                  
+                  {formError && (
+                    <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-md my-2">
+                      {formError}
+                    </div>
+                  )}
+
                   <button 
                     type="submit"
                     disabled={isSubmitting}
-                    className="w-full bg-[#BA590C] hover:bg-[#994708] disabled:opacity-70 text-white font-bold tracking-wider uppercase py-4 px-6 rounded-md shadow-md transition-colors mt-4 flex items-center justify-center gap-2"
+                    className="w-full bg-[#BA590C] hover:bg-[#994708] disabled:opacity-70 text-white font-bold tracking-wider uppercase py-4 px-6 rounded-md shadow-md transition-colors mt-4 flex items-center justify-center gap-2 disabled:cursor-not-allowed"
                   >
                     {isSubmitting ? (
                       <>
                         <Loader2 className="w-5 h-5 animate-spin" />
-                        Skickar rapport...
+                        Skickar...
                       </>
                     ) : (
                       <>
@@ -477,15 +567,23 @@ export default function App() {
             ) : (
               <div className="py-8 flex flex-col items-center text-center">
                 <div className="w-16 h-16 bg-[#FAF7F5] rounded-full flex items-center justify-center mb-4">
-                  <CheckCircle2 className="w-8 h-8 text-[#BA590C]" />
+                  <CheckCircle2 className="w-8 h-8 text-[#15803d]" />
                 </div>
-                <h3 className="text-2xl font-condensed font-bold text-slate-800 mb-2 uppercase tracking-tight">Rapporten är skickad!</h3>
+                <h3 className="text-2xl font-condensed font-bold text-slate-800 mb-2 uppercase tracking-tight">Tack!</h3>
                 <p className="text-slate-600 mb-6">
-                  Er detaljerade ROI-kalkyl är på väg till din inkorg. Håll utkik efter ett mail från oss.
+                  Din kalkyl är skickad till din e-post.
                 </p>
+                <a 
+                  href="https://halsobolaget.se/om-halsobolaget/kontakt/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-[#BA590C] hover:bg-[#994708] text-white font-bold tracking-wider uppercase py-4 px-6 rounded-md shadow-md transition-colors mb-4 block"
+                >
+                  Boka 15 min gratis rådgivning
+                </a>
                 <button 
                   onClick={() => setIsModalOpen(false)}
-                  className="text-[#BA590C] font-bold tracking-wider uppercase hover:text-[#994708]"
+                  className="text-slate-400 text-sm font-bold tracking-wider uppercase hover:text-slate-600"
                 >
                   Stäng fönstret
                 </button>

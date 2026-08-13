@@ -1,9 +1,84 @@
 import { Resend } from 'resend';
+import PDFDocument from 'pdfkit';
+
+// Hjälpfunktion för att generera en enkel PDF i minnet
+const generatePDF = (calcData: any, userName: string, companyText: string, formatCurrency: any): Promise<Buffer> => {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 50 });
+      const buffers: Buffer[] = [];
+      doc.on('data', buffers.push.bind(buffers));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+      doc.fontSize(24).fillColor('#0f172a').text('ROI Kalkyl - Sjukfrånvaro', { align: 'center' });
+      doc.moveDown(1);
+      doc.fontSize(14).fillColor('#334155').text(`Framtagen för ${userName}${companyText}`);
+      doc.moveDown(2);
+      
+      doc.fontSize(16).fillColor('#0f172a').text('Er sammanställning', { underline: true });
+      doc.moveDown(0.5);
+      
+      doc.fontSize(12).fillColor('#334155').text(`Antal anställda: ${calcData.employees}`);
+      doc.text(`Sjukfrånvaro: ${calcData.sickLeavePercent}%`);
+      
+      doc.moveDown(1);
+      doc.fontSize(14).fillColor('#ef4444').text(`Total årlig kostnad: ${formatCurrency(calcData.calculatedAnnualCost)}`);
+      
+      doc.moveDown(1);
+      doc.fontSize(16).fillColor('#15803d').text(`Potentiell årlig besparing: ${formatCurrency(calcData.savingsMin)} - ${formatCurrency(calcData.savingsMax)}`);
+      
+      doc.moveDown(2);
+      doc.fontSize(10).fillColor('#64748b').text('Kalkylen inkluderar lagstadgade arbetsgivaravgifter (31,42%) och schablon för indirekta kostnader (vikarier, administration och produktionsbortfall) med en faktor på 1.4x månadslönen. Beräknat på 220 arbetsdagar per år.');
+      
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+};
+
+// Rate limiting cache (minne - skyddar mot snabbt spam på samma server-instans)
+const rateLimitCache = new Map<string, { count: number, timestamp: number }>();
+const RATE_LIMIT_MAX = 3; // Max antal mail per IP...
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // ...per timme
 
 export default async function handler(req: any, res: any) {
   // 1. Endast POST-anrop tillåts
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // 1b. Rate limiting check (Spamskydd Backend)
+  // På Vercel ligger besökarens riktiga IP ofta i x-forwarded-for
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const ip = (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor?.split(',')[0]) 
+             || req.socket?.remoteAddress 
+             || 'unknown';
+             
+  const now = Date.now();
+  
+  if (ip !== 'unknown') {
+    const userRateData = rateLimitCache.get(ip);
+    if (userRateData) {
+      if (now - userRateData.timestamp < RATE_LIMIT_WINDOW_MS) {
+        if (userRateData.count >= RATE_LIMIT_MAX) {
+          console.warn(`Spamskydd aktiverat: IP ${ip} har överskridit gränsen på ${RATE_LIMIT_MAX} mail per timme.`);
+          return res.status(429).json({ error: 'Du har skickat för många kalkylator-förfrågningar. Vänligen vänta ett tag innan du försöker igen.' });
+        }
+        userRateData.count++;
+      } else {
+        // Tidsfönstret har passerat, nollställ
+        rateLimitCache.set(ip, { count: 1, timestamp: now });
+      }
+    } else {
+      // Första gången denna IP syns
+      rateLimitCache.set(ip, { count: 1, timestamp: now });
+    }
+    
+    // Rensa cachen ibland för att undvika minnesläckage om det kommer trafik från tusentals olika IP:n
+    if (rateLimitCache.size > 1000) {
+      rateLimitCache.clear();
+    }
   }
 
   // 2. Kontrollera API-nyckeln
@@ -28,13 +103,18 @@ export default async function handler(req: any, res: any) {
     const userName = firstName ? firstName.trim() : 'Kund';
     const companyText = company ? ` på ${company}` : '';
 
+    const clamp = (val: any, min: number, max: number) => {
+      const num = Number(val) || 0;
+      return Math.min(Math.max(num, min), max);
+    };
+
     const calcData = {
-      employees: calculatorData.employees || 0,
-      sickLeavePercent: calculatorData.sickLeavePercent || 0,
-      monthlySalary: calculatorData.monthlySalary || 0,
-      calculatedAnnualCost: calculatorData.calculatedAnnualCost || 0,
-      savingsMin: calculatorData.savingsMin || 0,
-      savingsMax: calculatorData.savingsMax || 0,
+      employees: clamp(calculatorData.employees, 1, 50000),
+      sickLeavePercent: clamp(calculatorData.sickLeavePercent, 0, 100),
+      monthlySalary: clamp(calculatorData.monthlySalary, 1, 1000000),
+      calculatedAnnualCost: clamp(calculatorData.calculatedAnnualCost, 0, 1000000000),
+      savingsMin: clamp(calculatorData.savingsMin, 0, 1000000000),
+      savingsMax: clamp(calculatorData.savingsMax, 0, 1000000000),
     };
 
     const formatCurrency = (val: number) =>
@@ -56,7 +136,7 @@ export default async function handler(req: any, res: any) {
         </div>
         <div style="padding: 40px 30px;">
           <p style="margin-top: 0; font-size: 16px;">Hej ${userName}!</p>
-          <p style="font-size: 16px;">Tack för att du använde vår kalkylator. Här är din sammanställning över sjukfrånvarons kostnader${companyText}.</p>
+          <p style="font-size: 16px;">Tack för att du använde vår kalkylator. Här är din sammanställning över sjukfrånvarons kostnader${companyText}. En formell PDF-rapport finns också bifogad i detta mail.</p>
           
           <div style="margin: 30px 0;">
             <h2 style="font-size: 18px; color: #1e293b; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0;">Ert resultat</h2>
@@ -104,12 +184,27 @@ export default async function handler(req: any, res: any) {
     </ul>
     `;
 
+    // Generera PDF-rapport
+    let pdfBuffer: Buffer | null = null;
+    try {
+      pdfBuffer = await generatePDF(calcData, userName, companyText, formatCurrency);
+    } catch (pdfErr) {
+      console.error('Kunde inte generera PDF:', pdfErr);
+      // Vi fortsätter ändå, mailet skickas utan bilaga om PDF:en misslyckas.
+    }
+
+    const attachments = pdfBuffer ? [{
+      filename: 'ROI_Kalkyl_Sjukfranvaro.pdf',
+      content: pdfBuffer,
+    }] : undefined;
+
     // 4. Skicka mail till kunden (Officiellt SDK-mönster)
     const userResult = await resend.emails.send({
       from: senderEmail,
       to: [email],
       subject: 'Din ROI-kalkyl för minskad sjukfrånvaro',
       html: customerHtml,
+      attachments,
     });
 
     // Kontrollera om Resend returnerade ett fel
@@ -127,6 +222,7 @@ export default async function handler(req: any, res: any) {
       to: [adminEmail],
       subject: `Nytt lead från kalkylatorn: ${company || email}`,
       html: adminHtml,
+      attachments,
     });
 
     if (adminResult.error) {

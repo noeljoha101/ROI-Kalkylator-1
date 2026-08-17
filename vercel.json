@@ -1,4 +1,7 @@
 {
-  "buildCommand": "vite build",
-  "outputDirectory": "dist"
+  "functions": {
+    "api/send-roi.ts": {
+      "includeFiles": "src/client.config.ts"
+    }
+  }
 }

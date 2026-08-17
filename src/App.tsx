@@ -22,7 +22,7 @@ import {
   Tooltip, 
   ResponsiveContainer
 } from 'recharts';
-import { CLIENT_CONFIG } from './client.config';
+import { CLIENT_CONFIG } from '../api/client.config';
 
 const INDIRECT_COST_FACTOR = 1.4; // Vikarier, admin, produktionsbortfall
 const WORKDAYS_PER_MONTH = 21;
@@ -113,7 +113,7 @@ export default function App() {
       return;
     }
 
-    const freeEmailProviders = ['hotmail.com', 'yahoo.com', 'outlook.com', 'live.se', 'hotmail.se'];
+    const freeEmailProviders = ['gmail.com', 'hotmail.com', 'yahoo.com', 'outlook.com', 'live.se', 'hotmail.se'];
     const emailDomain = formData.email.split('@')[1]?.toLowerCase();
     if (freeEmailProviders.includes(emailDomain)) {
       setFormError('Vänligen använd din företags-e-postadress för att få rapporten.');

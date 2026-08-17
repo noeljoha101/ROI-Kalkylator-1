@@ -3,7 +3,7 @@ import PDFDocument from 'pdfkit';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { Request, Response } from 'express';
-import { CLIENT_CONFIG } from '../src/client.config';
+import { CLIENT_CONFIG } from './client.config';
 import crypto from 'crypto';
 
 const INDIRECT_COST_FACTOR = 1.4; // Vikarier, admin, produktionsbortfall

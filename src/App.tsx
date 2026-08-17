@@ -22,15 +22,16 @@ import {
   Tooltip, 
   ResponsiveContainer
 } from 'recharts';
-import { CLIENT_CONFIG } from '../api/client.config';
 
-const INDIRECT_COST_FACTOR = 1.4; // Vikarier, admin, produktionsbortfall
-const WORKDAYS_PER_MONTH = 21;
-const WORKDAYS_PER_YEAR = 220;
-const SAVINGS_LOW = 0.15;
-const SAVINGS_HIGH = 0.30;
+const INDUSTRIES = {
+  'Kontor/tjänst': 40000,
+  'Bygg/industri': 35000,
+  'Vård/omsorg': 30000,
+  'Handel': 28000,
+  'Övrigt': 32000,
+};
 
-type Industry = keyof typeof CLIENT_CONFIG.industries;
+type Industry = keyof typeof INDUSTRIES;
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('sv-SE', {
@@ -44,7 +45,7 @@ export default function App() {
   const [employees, setEmployees] = useState<number>(50);
   const [industry, setIndustry] = useState<Industry>('Kontor/tjänst');
   const [sickLeavePercent, setSickLeavePercent] = useState<number>(5.3);
-  const [monthlySalary, setMonthlySalary] = useState<number>(CLIENT_CONFIG.industries['Kontor/tjänst']);
+  const [monthlySalary, setMonthlySalary] = useState<number>(INDUSTRIES['Kontor/tjänst']);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -62,22 +63,22 @@ export default function App() {
 
   // Update salary when industry changes, if the user hasn't heavily customized it (or just always update for simplicity)
   useEffect(() => {
-    setMonthlySalary(CLIENT_CONFIG.industries[industry]);
+    setMonthlySalary(INDUSTRIES[industry]);
   }, [industry]);
 
   // Calculations
-  // Kostnad per sjukdag
-  const costPerSickDay = (monthlySalary / WORKDAYS_PER_MONTH) * INDIRECT_COST_FACTOR;
+  // Kostnad per sjukdag ≈ (månadslön / 21 arbetsdagar) × 1,4
+  const costPerSickDay = (monthlySalary / 21) * 1.4;
   
-  // Total årlig sjukfrånvarokostnad
-  const totalAnnualCost = employees * WORKDAYS_PER_YEAR * (sickLeavePercent / 100) * costPerSickDay;
+  // Total årlig sjukfrånvarokostnad = antal anställda × arbetsdagar per år (ca 220) × sjukfrånvaro-% × kostnad per sjukdag
+  const totalAnnualCost = employees * 220 * (sickLeavePercent / 100) * costPerSickDay;
   
   // Besparing vid 1% minskning
-  const savingsOnePercent = employees * WORKDAYS_PER_YEAR * (1 / 100) * costPerSickDay;
+  const savingsOnePercent = employees * 220 * (1 / 100) * costPerSickDay;
 
-  // Potential savings
-  const savingsMin = totalAnnualCost * SAVINGS_LOW;
-  const savingsMax = totalAnnualCost * SAVINGS_HIGH;
+  // Potential savings (15% to 30%)
+  const savingsMin = totalAnnualCost * 0.15;
+  const savingsMax = totalAnnualCost * 0.30;
 
   // Projection over 5 years
   const projectionData = Array.from({ length: 6 }).map((_, i) => ({
@@ -153,6 +154,8 @@ export default function App() {
       if (!response.ok) {
         throw new Error('Failed to send email');
       }
+
+      console.log("Lead form submitted till backend:", payload);
       
       setIsSubmitted(true);
     } catch (error) {
@@ -164,19 +167,11 @@ export default function App() {
   };
 
   return (
-    <div 
-      className="flex flex-col min-h-screen bg-[#fdfdfd] overflow-hidden text-slate-800 font-sans selection:bg-[var(--brand-color)]/20"
-      style={{
-        '--brand-color': CLIENT_CONFIG.brandColor,
-        '--brand-color-hover': CLIENT_CONFIG.brandColorHover
-      } as React.CSSProperties}
-    >
+    <div className="flex flex-col min-h-screen bg-[#fdfdfd] overflow-hidden text-slate-800 font-sans selection:bg-[#BA590C]/20">
       {/* Header */}
       <nav className="h-16 flex items-center justify-between px-6 md:px-10 border-b border-slate-100 bg-white shrink-0">
         <div className="flex items-center gap-12 md:gap-16">
-          <a href={CLIENT_CONFIG.websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity">
-            {/* OBS: SVG-logotypen nedan (inkl dess färger/gradienter) är specifik för kunden (Hälsobolaget). 
-                Vid onboarding av en ny kund bör denna SVG bytas ut mot den nya kundens logotyp manuellt. */}
+          <a href="https://halsobolaget.se" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity">
             <svg width="42" height="42" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" className="shrink-0 drop-shadow-sm">
               <defs>
                 <linearGradient id="metalGradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -208,19 +203,18 @@ export default function App() {
                     strokeWidth="0.5"/>
             </svg>
             <span className="font-serif text-[26px] tracking-[0.08em] text-[#52525B] mt-1">
-              {CLIENT_CONFIG.companyName}
+              HÄLSOBOLAGET
             </span>
           </a>
           <div className="hidden md:flex gap-8 text-sm font-condensed font-bold text-slate-500 uppercase tracking-widest mt-1">
-            {CLIENT_CONFIG.headerLinks.map((link, i) => (
-              <a key={i} href={link.url} target="_blank" rel="noopener noreferrer" className="hover:text-[var(--brand-color)] transition-colors">{link.label}</a>
-            ))}
-            <span className="text-slate-900 border-b-2 border-[var(--brand-color)]">ROI Kalkylator</span>
+            <a href="https://halsobolaget.se" target="_blank" rel="noopener noreferrer" className="hover:text-[#BA590C] transition-colors">Tjänster</a>
+            <a href="https://halsobolaget.se/arbetsplatsen/riskbedomning-och-handlingsplaner/arbetsmiljokollen/" target="_blank" rel="noopener noreferrer" className="hover:text-[#BA590C] transition-colors">Arbetsmiljökollen</a>
+            <span className="text-slate-900 border-b-2 border-[#BA590C]">ROI Kalkylator</span>
           </div>
         </div>
         <a 
           href="#result" 
-          className="text-sm font-condensed font-bold text-[var(--brand-color)] hover:text-[var(--brand-color)]/80 transition-colors md:hidden uppercase"
+          className="text-sm font-condensed font-bold text-[#BA590C] hover:text-[#BA590C]/80 transition-colors md:hidden uppercase"
         >
           Se resultat
         </a>
@@ -249,7 +243,7 @@ export default function App() {
                 max="500" 
                 value={employees} 
                 onChange={handleEmployeesChange}
-                className="w-full h-1 bg-slate-100 accent-[var(--brand-color)] appearance-none cursor-pointer rounded-full"
+                className="w-full h-1 bg-slate-100 accent-[#BA590C] appearance-none cursor-pointer rounded-full"
               />
             </div>
 
@@ -260,9 +254,9 @@ export default function App() {
                 <select 
                   value={industry}
                   onChange={(e) => setIndustry(e.target.value as Industry)}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-color)]/20 appearance-none cursor-pointer"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#BA590C]/20 appearance-none cursor-pointer"
                 >
-                  {Object.keys(CLIENT_CONFIG.industries).map((ind) => (
+                  {Object.keys(INDUSTRIES).map((ind) => (
                     <option key={ind} value={ind}>{ind}</option>
                   ))}
                 </select>
@@ -287,7 +281,7 @@ export default function App() {
                 step="0.1"
                 value={sickLeavePercent} 
                 onChange={handleSickLeaveChange}
-                className="w-full h-1 bg-slate-100 accent-[var(--brand-color)] appearance-none cursor-pointer rounded-full"
+                className="w-full h-1 bg-slate-100 accent-[#BA590C] appearance-none cursor-pointer rounded-full"
               />
             </div>
 
@@ -299,7 +293,7 @@ export default function App() {
                   type="text" 
                   value={monthlySalary.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ")}
                   onChange={handleSalaryChange}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[var(--brand-color)]/20 pr-12"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#BA590C]/20 pr-12"
                 />
                 <span className="absolute right-3 top-3 text-slate-400 text-xs font-medium">SEK</span>
               </div>
@@ -318,8 +312,8 @@ export default function App() {
         <section id="result" className="flex-1 bg-slate-50/50 p-6 md:p-12 flex flex-col overflow-y-auto">
           <div className="flex-1 flex flex-col justify-center max-w-2xl mx-auto w-full space-y-10 py-8">
             <div className="bg-white p-8 md:p-10 rounded-sm shadow-sm border border-slate-200/50 relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-full h-1.5 bg-[var(--brand-color)]"></div>
-              <span className="text-xs font-bold text-[var(--brand-color)] uppercase tracking-[3px] block mb-4">Uppskattad årlig kostnad</span>
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-[#BA590C]"></div>
+              <span className="text-xs font-bold text-[#BA590C] uppercase tracking-[3px] block mb-4">Uppskattad årlig kostnad</span>
               
               <div className="flex items-baseline gap-4 flex-wrap">
                 <h2 className="text-5xl md:text-6xl font-bold text-slate-800 tracking-tight">
@@ -339,8 +333,8 @@ export default function App() {
                           <stop offset="95%" stopColor="#cbd5e1" stopOpacity={0}/>
                         </linearGradient>
                         <linearGradient id="colorReduced" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="var(--brand-color)" stopOpacity={0.8}/>
-                          <stop offset="95%" stopColor="var(--brand-color)" stopOpacity={0}/>
+                          <stop offset="5%" stopColor="#BA590C" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#BA590C" stopOpacity={0}/>
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -356,15 +350,15 @@ export default function App() {
                         contentStyle={{ borderRadius: '4px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '13px' }}
                       />
                       <Area type="monotone" dataKey="Nuvarande" stroke="#94a3b8" strokeWidth={2} fillOpacity={1} fill="url(#colorCurrent)" />
-                      <Area type="monotone" dataKey="Efter åtgärder (-15%)" stroke="var(--brand-color)" strokeWidth={2} fillOpacity={1} fill="url(#colorReduced)" />
+                      <Area type="monotone" dataKey="Efter åtgärder (-15%)" stroke="#BA590C" strokeWidth={2} fillOpacity={1} fill="url(#colorReduced)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
               </div>
             </div>
 
-            <div className="bg-[#FAF7F5] border border-[var(--brand-color)]/20 p-6 rounded-sm flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 text-center sm:text-left">
-              <div className="w-16 h-16 shrink-0 bg-white rounded-full flex items-center justify-center shadow-sm text-2xl font-bold text-[var(--brand-color)]">-1%</div>
+            <div className="bg-[#FAF7F5] border border-[#BA590C]/20 p-6 rounded-sm flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 text-center sm:text-left">
+              <div className="w-16 h-16 shrink-0 bg-white rounded-full flex items-center justify-center shadow-sm text-2xl font-bold text-[#BA590C]">-1%</div>
               <div className="flex-1 mt-1">
                 <p className="text-slate-800 font-medium">Sänk sjukfrånvaron med endast 1%</p>
                 <p className="text-slate-600 text-sm mt-1">Det skulle spara er ca <span className="text-slate-900 font-bold">{formatCurrency(savingsOnePercent)}</span> per år i rena produktionsvinster.</p>
@@ -380,16 +374,16 @@ export default function App() {
               
               <div 
                 onClick={() => setIsModalOpen(true)}
-                className="bg-white border border-slate-200 hover:border-[var(--brand-color)]/50 rounded-lg p-6 relative overflow-hidden group cursor-pointer transition-all shadow-sm hover:shadow-md"
+                className="bg-white border border-slate-200 hover:border-[#BA590C]/50 rounded-lg p-6 relative overflow-hidden group cursor-pointer transition-all shadow-sm hover:shadow-md"
               >
-                <div className="absolute top-0 right-0 w-48 h-48 bg-[var(--brand-color)]/5 rounded-full blur-3xl -mr-20 -mt-20 transition-all group-hover:bg-[var(--brand-color)]/10"></div>
+                <div className="absolute top-0 right-0 w-48 h-48 bg-[#BA590C]/5 rounded-full blur-3xl -mr-20 -mt-20 transition-all group-hover:bg-[#BA590C]/10"></div>
                 <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 relative z-10 text-center sm:text-left">
                   <div className="w-24 h-32 bg-slate-50 border border-slate-200 rounded-sm shadow-sm flex flex-col justify-between p-3 shrink-0 group-hover:-translate-y-1 transition-transform relative">
                     <div className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
                       KALKYL
                     </div>
                     <div className="space-y-1.5">
-                      <div className="h-2 w-10 bg-[var(--brand-color)] rounded-full"></div>
+                      <div className="h-2 w-10 bg-[#BA590C] rounded-full"></div>
                       <div className="h-1 w-14 bg-slate-300 rounded-full"></div>
                       <div className="h-1 w-12 bg-slate-300 rounded-full"></div>
                     </div>
@@ -400,15 +394,15 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex-1">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-50 text-[var(--brand-color)] text-[10px] font-bold uppercase tracking-wider mb-3">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-50 text-[#BA590C] text-[10px] font-bold uppercase tracking-wider mb-3">
                       <Download className="w-3.5 h-3.5" />
                       Din personliga kalkyl
                     </span>
-                    <h4 className="text-lg font-bold text-slate-800 mb-2 group-hover:text-[var(--brand-color)] transition-colors">ROI-kalkyl för {industry}</h4>
+                    <h4 className="text-lg font-bold text-slate-800 mb-2 group-hover:text-[#BA590C] transition-colors">ROI-kalkyl för {industry}</h4>
                     <p className="text-sm text-slate-600 mb-5 leading-relaxed">
                       Få en personlig ROI-kalkyl över er sjukfrånvaro direkt till din inkorg.
                     </p>
-                    <button className="w-full sm:w-auto bg-[var(--brand-color)] text-white px-6 py-3 rounded-md font-bold text-sm uppercase tracking-wider hover:bg-[var(--brand-color-hover)] transition-colors flex items-center justify-center gap-2 shadow-sm">
+                    <button className="w-full sm:w-auto bg-[#BA590C] text-white px-6 py-3 rounded-md font-bold text-sm uppercase tracking-wider hover:bg-[#994708] transition-colors flex items-center justify-center gap-2 shadow-sm">
                       <Mail className="w-4 h-4" />
                       <span>Skicka till min e-post</span>
                     </button>
@@ -423,11 +417,15 @@ export default function App() {
           </div>
 
           <footer className="mt-auto hidden md:flex justify-center gap-12 py-6 border-t border-slate-100/50">
-            {CLIENT_CONFIG.footerBadges.map((badge, i) => (
-              <div key={i} className="flex items-center gap-2 opacity-40 grayscale hover:opacity-100 transition-opacity">
-                <span className="text-[10px] font-bold tracking-widest uppercase">{badge}</span>
-              </div>
-            ))}
+            <div className="flex items-center gap-2 opacity-40 grayscale hover:opacity-100 transition-opacity">
+               <span className="text-[10px] font-bold tracking-widest uppercase">Arbetsmiljökollen</span>
+            </div>
+            <div className="flex items-center gap-2 opacity-40 grayscale hover:opacity-100 transition-opacity">
+               <span className="text-[10px] font-bold tracking-widest uppercase">Rehab-koordinering</span>
+            </div>
+            <div className="flex items-center gap-2 opacity-40 grayscale hover:opacity-100 transition-opacity">
+               <span className="text-[10px] font-bold tracking-widest uppercase">Hälsoundersökning</span>
+            </div>
           </footer>
         </section>
       </main>
@@ -451,7 +449,7 @@ export default function App() {
             {!isSubmitted ? (
               <>
                 <div className="w-12 h-12 bg-[#FAF7F5] rounded-full flex items-center justify-center mb-4">
-                  <Download className="w-6 h-6 text-[var(--brand-color)]" />
+                  <Download className="w-6 h-6 text-[#BA590C]" />
                 </div>
                 <h3 className="text-2xl font-condensed font-bold text-slate-800 mb-2 uppercase tracking-tight">Få er skräddarsydda ROI-kalkyl</h3>
                 <p className="text-slate-600 mb-6 text-sm">
@@ -467,7 +465,7 @@ export default function App() {
                         type="text" 
                         value={formData.firstName}
                         onChange={e => setFormData({...formData, firstName: e.target.value})}
-                        className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-color)]/20 focus:border-[var(--brand-color)]"
+                        className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#BA590C]/20 focus:border-[#BA590C]"
                       />
                     </div>
                     <div>
@@ -476,7 +474,7 @@ export default function App() {
                         type="text" 
                         value={formData.lastName}
                         onChange={e => setFormData({...formData, lastName: e.target.value})}
-                        className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-color)]/20 focus:border-[var(--brand-color)]"
+                        className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#BA590C]/20 focus:border-[#BA590C]"
                       />
                     </div>
                   </div>
@@ -487,7 +485,7 @@ export default function App() {
                       type="text" 
                       value={formData.company}
                       onChange={e => setFormData({...formData, company: e.target.value})}
-                      className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-color)]/20 focus:border-[var(--brand-color)]"
+                      className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#BA590C]/20 focus:border-[#BA590C]"
                     />
                   </div>
                   <div>
@@ -497,7 +495,7 @@ export default function App() {
                       type="email" 
                       value={formData.email}
                       onChange={e => setFormData({...formData, email: e.target.value})}
-                      className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-color)]/20 focus:border-[var(--brand-color)]"
+                      className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#BA590C]/20 focus:border-[#BA590C]"
                     />
                   </div>
                   <div>
@@ -507,7 +505,7 @@ export default function App() {
                       type="tel" 
                       value={formData.phone}
                       onChange={e => setFormData({...formData, phone: e.target.value})}
-                      className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-color)]/20 focus:border-[var(--brand-color)]"
+                      className="w-full border border-slate-300 bg-white rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#BA590C]/20 focus:border-[#BA590C]"
                     />
                   </div>
                   
@@ -531,7 +529,7 @@ export default function App() {
                       required
                       checked={formData.gdprConsent}
                       onChange={e => setFormData({...formData, gdprConsent: e.target.checked})}
-                      className="mt-1 w-4 h-4 text-[var(--brand-color)] bg-white border-slate-300 rounded focus:ring-[var(--brand-color)]"
+                      className="mt-1 w-4 h-4 text-[#BA590C] bg-white border-slate-300 rounded focus:ring-[#BA590C]"
                     />
                     <label htmlFor="gdpr" className="text-xs text-slate-600 leading-relaxed">
                       Jag godkänner att mina uppgifter lagras för att kunna skicka rapporten och kontakta mig, i enlighet med integritetspolicyn.
@@ -547,7 +545,7 @@ export default function App() {
                   <button 
                     type="submit"
                     disabled={isSubmitting}
-                    className="w-full bg-[var(--brand-color)] hover:bg-[var(--brand-color-hover)] disabled:opacity-70 text-white font-bold tracking-wider uppercase py-4 px-6 rounded-md shadow-md transition-colors mt-4 flex items-center justify-center gap-2 disabled:cursor-not-allowed"
+                    className="w-full bg-[#BA590C] hover:bg-[#994708] disabled:opacity-70 text-white font-bold tracking-wider uppercase py-4 px-6 rounded-md shadow-md transition-colors mt-4 flex items-center justify-center gap-2 disabled:cursor-not-allowed"
                   >
                     {isSubmitting ? (
                       <>
@@ -576,12 +574,12 @@ export default function App() {
                   Din kalkyl är skickad till din e-post.
                 </p>
                 <a 
-                  href={CLIENT_CONFIG.ctaUrl}
+                  href="https://halsobolaget.se/om-halsobolaget/kontakt/"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full bg-[var(--brand-color)] hover:bg-[var(--brand-color-hover)] text-white font-bold tracking-wider uppercase py-4 px-6 rounded-md shadow-md transition-colors mb-4 block"
+                  className="w-full bg-[#BA590C] hover:bg-[#994708] text-white font-bold tracking-wider uppercase py-4 px-6 rounded-md shadow-md transition-colors mb-4 block"
                 >
-                  {CLIENT_CONFIG.ctaLabel}
+                  Boka 15 min gratis rådgivning
                 </a>
                 <button 
                   onClick={() => setIsModalOpen(false)}

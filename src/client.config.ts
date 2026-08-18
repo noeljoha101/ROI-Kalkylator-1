@@ -5,7 +5,7 @@ export const CLIENT_CONFIG = {
   senderEmail: 'Hälsokalkylatorn <resultat@ditt-resultat.se>',
   websiteUrl: 'https://halsobolaget.se',
   ctaUrl: 'https://halsobolaget.se/om-halsobolaget/kontakt/',
-  ctaLabel: 'Boka 15 min gratis rådgivning',
+  ctaLabel: 'Låt oss bli er partner',
   emailHeaderTitle: 'Hälsokalkylatorn',
   footerBadges: ['Arbetsmiljökollen', 'Rehab-koordinering', 'Hälsoundersökning'],
   headerLinks: [

@@ -3,9 +3,15 @@ import PDFDocument from 'pdfkit';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { Request, Response } from 'express';
-import { CLIENT_CONFIG } from './client.config';
 import crypto from 'crypto';
-
+// OBS: Duplicerad från src/client.config.ts (inte importerad) eftersom Vercels
+// serverless-funktionsbuntare inte tillförlitligt bundlar separata lokala .ts-filer
+// för denna funktion. Om branding ändras i src/client.config.ts, uppdatera ÄVEN
+// dessa värden manuellt så att frontend och backend inte hamnar i otakt.
+const CLIENT_CONFIG = {
+  senderEmail: 'Hälsokalkylatorn <resultat@ditt-resultat.se>',
+  emailHeaderTitle: 'Hälsokalkylatorn',
+};
 const INDIRECT_COST_FACTOR = 1.4; // Vikarier, admin, produktionsbortfall
 const WORKDAYS_PER_MONTH = 21;
 const WORKDAYS_PER_YEAR = 220;

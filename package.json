@@ -15,7 +15,6 @@
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.2",
     "@vitejs/plugin-react": "^5.0.4",
-    "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
@@ -26,6 +25,7 @@
     "resend": "^6.19.0"
   },
   "devDependencies": {
+    "dotenv": "^17.2.3",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Users, 
   Building2, 
@@ -80,11 +80,14 @@ export default function App() {
   const savingsMax = totalAnnualCost * SAVINGS_HIGH;
 
   // Projection over 5 years
-  const projectionData = Array.from({ length: 6 }).map((_, i) => ({
-    year: `År ${i}`,
-    Nuvarande: Math.round(totalAnnualCost * i),
-    'Efter åtgärder (-15%)': Math.round((totalAnnualCost - savingsMin) * i)
-  }));
+  const projectionData = useMemo(() => 
+    Array.from({ length: 6 }).map((_, i) => ({
+      year: `År ${i}`,
+      Nuvarande: Math.round(totalAnnualCost * i),
+      'Efter åtgärder (-15%)': Math.round((totalAnnualCost - savingsMin) * i)
+    })),
+    [totalAnnualCost, savingsMin]
+  );
 
   const handleEmployeesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = Number(e.target.value.replace(/\D/g, ''));

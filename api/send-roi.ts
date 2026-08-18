@@ -1,9 +1,10 @@
 import { Resend } from 'resend';
-import PDFDocument from 'pdfkit';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { Request, Response } from 'express';
 import crypto from 'crypto';
+import { generatePDF } from './lib/generatePdf';
+import { getCustomerHtml, getAdminHtml } from './lib/emailTemplates';
 
 // OBS: Duplicerad från src/client.config.ts (inte importerad) eftersom Vercels
 // serverless-funktionsbuntare inte tillförlitligt bundlar separata lokala .ts-filer
@@ -29,56 +30,15 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
-const generatePDF = (calcData: any, userName: string, companyText: string, formatCurrency: any): Promise<Buffer> => {
-  return new Promise((resolve, reject) => {
-    try {
-      const doc = new PDFDocument({ margin: 50 });
-      const buffers: Buffer[] = [];
-      doc.on('data', buffers.push.bind(buffers));
-      doc.on('end', () => resolve(Buffer.concat(buffers)));
-
-      doc.fontSize(24).fillColor('#0f172a').text('ROI Kalkyl - Sjukfrånvaro', { align: 'center' });
-      doc.moveDown(1);
-      doc.fontSize(14).fillColor('#334155').text(`Framtagen för ${userName}${companyText}`);
-      doc.moveDown(2);
-      
-      doc.fontSize(16).fillColor('#0f172a').text('Er sammanställning', { underline: true });
-      doc.moveDown(0.5);
-      
-      doc.fontSize(12).fillColor('#334155').text(`Antal anställda: ${calcData.employees}`);
-      doc.text(`Sjukfrånvaro: ${calcData.sickLeavePercent}%`);
-      
-      doc.moveDown(1);
-      doc.fontSize(14).fillColor('#ef4444').text(`Total årlig kostnad: ${formatCurrency(calcData.calculatedAnnualCost)}`);
-      
-      doc.moveDown(1);
-      doc.fontSize(16).fillColor('#15803d').text(`Potentiell årlig besparing: ${formatCurrency(calcData.savingsMin)} - ${formatCurrency(calcData.savingsMax)}`);
-      
-      doc.moveDown(2);
-      doc.fontSize(10).fillColor('#64748b').text(`Kalkylen inkluderar lagstadgade arbetsgivaravgifter (31,42%) och schablon för indirekta kostnader (vikarier, administration och produktionsbortfall) med en faktor på ${INDIRECT_COST_FACTOR}x månadslönen. Beräknat på ${WORKDAYS_PER_YEAR} arbetsdagar per år.`);
-      
-      doc.end();
-    } catch (err) {
-      reject(err);
-    }
-  });
-};
-
-// Initialize Upstash Redis Ratelimit
 let ratelimit: Ratelimit | null = null;
-if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
-  const redis = new Redis({
-    url: process.env.KV_REST_API_URL,
-    token: process.env.KV_REST_API_TOKEN,
-  });
-  ratelimit = new Ratelimit({
-    redis,
-    limiter: Ratelimit.slidingWindow(3, '1 h'),
-  });
-}
 
 export default async function handler(req: Request, res: Response) {
   // 1. Origin-kontroll
+  // VIKTIGT: Vid iframe-inbäddning skickar webbläsaren Origin = iframens EGEN domän
+  // (t.ex. https://din-app.vercel.app), INTE värdsidans domän (halsobolaget.se) —
+  // om inte kunden pekat en egen subdomän (CNAME) mot denna app. Sätt ALLOWED_ORIGIN
+  // till den faktiska domän varifrån requesten skickas, inte till värdsidans domän
+  // om de skiljer sig åt.
   const allowedOrigin = process.env.ALLOWED_ORIGIN;
   if (allowedOrigin && req.headers.origin && req.headers.origin !== allowedOrigin) {
     return res.status(403).json({ error: 'Otillåten origin' });
@@ -87,6 +47,18 @@ export default async function handler(req: Request, res: Response) {
   if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
     console.error('KV_REST_API_URL/KV_REST_API_TOKEN saknas — har Redis-databasen kopplats till projektet i Vercel Storage?');
     return res.status(500).json({ error: 'Serverkonfigurationsfel' });
+  }
+
+  // Konsoliderad ratelimit-initiering
+  if (!ratelimit) {
+    const redis = new Redis({
+      url: process.env.KV_REST_API_URL,
+      token: process.env.KV_REST_API_TOKEN,
+    });
+    ratelimit = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(3, '1 h'),
+    });
   }
 
   // 2. Endast POST-anrop tillåts
@@ -138,11 +110,12 @@ export default async function handler(req: Request, res: Response) {
     const senderEmail = CLIENT_CONFIG.senderEmail;
     
     // Sanitize user inputs
-    const safeFirstName = escapeHtml(firstName);
-    const safeLastName = escapeHtml(lastName);
-    const safeCompany = escapeHtml(company);
-    const safeEmail = escapeHtml(email);
-    const safePhone = escapeHtml(phone);
+    const MAX_LEN = 200;
+    const safeFirstName = escapeHtml(String(firstName || '').slice(0, MAX_LEN));
+    const safeLastName = escapeHtml(String(lastName || '').slice(0, MAX_LEN));
+    const safeCompany = escapeHtml(String(company || '').slice(0, MAX_LEN));
+    const safeEmail = escapeHtml(String(email || '').slice(0, MAX_LEN));
+    const safePhone = escapeHtml(String(phone || '').slice(0, 50));
 
     const userName = safeFirstName ? safeFirstName.trim() : 'Kund';
     const companyText = safeCompany ? ` på ${safeCompany}` : '';
@@ -179,69 +152,15 @@ export default async function handler(req: Request, res: Response) {
     const adminCompany = safeCompany || 'Ej angivet';
 
     // E-postmall för kund
-    const customerHtml = `
-    <!DOCTYPE html>
-    <html lang="sv">
-    <head><meta charset="UTF-8"></head>
-    <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f4f5; color: #334155; margin: 0; padding: 40px 20px; line-height: 1.6;">
-      <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);">
-        <div style="background-color: #f8fafc; padding: 30px; border-bottom: 1px solid #e2e8f0; text-align: center;">
-          <h1 style="margin: 0; color: #0f172a; font-size: 24px; font-weight: 700;">${CLIENT_CONFIG.emailHeaderTitle}</h1>
-        </div>
-        <div style="padding: 40px 30px;">
-          <p style="margin-top: 0; font-size: 16px;">Hej ${userName}!</p>
-          <p style="font-size: 16px;">Tack för att du använde vår kalkylator. Här är din sammanställning över sjukfrånvarons kostnader${companyText}. En formell PDF-rapport finns också bifogad i detta mail.</p>
-          
-          <div style="margin: 30px 0;">
-            <h2 style="font-size: 18px; color: #1e293b; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0;">Ert resultat</h2>
-            <table width="100%" cellpadding="0" cellspacing="0">
-              <tr>
-                <td style="padding: 12px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 15px;">Antal anställda</td>
-                <td style="padding: 12px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #0f172a; font-size: 15px; text-align: right;">${calcData.employees}</td>
-              </tr>
-              <tr>
-                <td style="padding: 12px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 15px;">Sjukfrånvaro</td>
-                <td style="padding: 12px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #0f172a; font-size: 15px; text-align: right;">${calcData.sickLeavePercent}%</td>
-              </tr>
-              <tr>
-                <td style="padding: 12px 0; color: #64748b; font-size: 15px;">Total årlig kostnad</td>
-                <td style="padding: 12px 0; font-weight: 600; color: #ef4444; font-size: 15px; text-align: right;">${formatCurrency(calcData.calculatedAnnualCost)}</td>
-              </tr>
-            </table>
-          </div>
-
-          <div style="margin-top: 30px; padding: 25px; background-color: #dcfce7; border-radius: 8px; text-align: center; border: 1px solid #bbf7d0;">
-            <div style="font-size: 14px; text-transform: uppercase; color: #166534; font-weight: 700; margin-bottom: 8px; letter-spacing: 0.05em;">Potentiell årlig besparing</div>
-            <div style="font-size: 28px; font-weight: bold; color: #15803d; margin-bottom: 8px;">${formatCurrency(calcData.savingsMin)} - ${formatCurrency(calcData.savingsMax)}</div>
-            <div style="font-size: 14px; color: #166534; opacity: 0.9;">Genom proaktiva hälsoinsatser och minskad sjukfrånvaro.</div>
-          </div>
-        </div>
-      </div>
-    </body>
-    </html>
-    `;
+    const customerHtml = getCustomerHtml(CLIENT_CONFIG.emailHeaderTitle, userName, companyText, calcData, formatCurrency);
 
     // E-postmall för admin
-    const adminHtml = `
-    <h3>Nytt lead från kalkylatorn</h3>
-    <p><strong>Namn:</strong> ${adminName}</p>
-    <p><strong>Email:</strong> ${safeEmail}</p>
-    <p><strong>Telefon:</strong> ${adminPhone}</p>
-    <p><strong>Företag:</strong> ${adminCompany}</p>
-    <hr />
-    <h4>Uträknade värden (Server-validerade)</h4>
-    <ul>
-      <li><strong>Anställda:</strong> ${calcData.employees}</li>
-      <li><strong>Sjukfrånvaro:</strong> ${calcData.sickLeavePercent}%</li>
-      <li><strong>Total årlig kostnad:</strong> ${formatCurrency(calcData.calculatedAnnualCost)}</li>
-      <li><strong>Potentiell besparing:</strong> ${formatCurrency(calcData.savingsMin)} - ${formatCurrency(calcData.savingsMax)}</li>
-    </ul>
-    `;
+    const adminHtml = getAdminHtml(adminName, safeEmail, adminPhone, adminCompany, calcData, formatCurrency);
 
     // Generera PDF-rapport
     let pdfBuffer: Buffer | null = null;
     try {
-      pdfBuffer = await generatePDF(calcData, userName, companyText, formatCurrency);
+      pdfBuffer = await generatePDF(calcData, userName, companyText, formatCurrency, INDIRECT_COST_FACTOR, WORKDAYS_PER_YEAR);
     } catch (pdfErr) {
       console.error('Kunde inte generera PDF:', pdfErr);
     }
@@ -251,39 +170,38 @@ export default async function handler(req: Request, res: Response) {
       content: pdfBuffer,
     }] : undefined;
 
-    // 6. Skicka mail till kunden
-    const userResult = await resend.emails.send({
-      from: senderEmail,
-      to: [email],
-      subject: 'Din ROI-kalkyl för minskad sjukfrånvaro',
-      html: customerHtml,
-      attachments,
-    });
+    // 6. Skicka mail via Promise.allSettled
+    const [userResult, adminResult] = await Promise.allSettled([
+      resend.emails.send({
+        from: senderEmail, 
+        to: [email],
+        subject: 'Din ROI-kalkyl för minskad sjukfrånvaro',
+        html: customerHtml, 
+        attachments,
+      }),
+      resend.emails.send({
+        from: senderEmail, 
+        to: [adminEmail],
+        subject: `Nytt lead från kalkylatorn: ${safeCompany || safeEmail}`,
+        html: adminHtml, 
+        attachments,
+      }),
+    ]);
 
-    if (userResult.error) {
-      console.error('Resend fel vid kundmail:', userResult.error);
-      return res.status(400).json({
-        error: 'Kunde inte skicka e-post till kund',
-        details: userResult.error.message,
-      });
+    if (adminResult.status === 'rejected' || (adminResult.status === 'fulfilled' && adminResult.value.error)) {
+      console.error('KRITISKT: Lead-mail till admin misslyckades:',
+        adminResult.status === 'rejected' ? adminResult.reason : adminResult.value.error);
     }
 
-    // 7. Skicka mail till admin
-    const adminResult = await resend.emails.send({
-      from: senderEmail,
-      to: [adminEmail],
-      subject: `Nytt lead från kalkylatorn: ${safeCompany || safeEmail}`,
-      html: adminHtml,
-      attachments,
-    });
-
-    if (adminResult.error) {
-      console.error('Resend fel vid adminmail:', adminResult.error);
+    if (userResult.status === 'rejected' || (userResult.status === 'fulfilled' && userResult.value.error)) {
+      console.error('Resend fel vid kundmail:',
+        userResult.status === 'rejected' ? userResult.reason : userResult.value.error);
+      return res.status(200).json({ success: true, warning: 'Rapporten kunde inte skickas direkt, men vi har tagit emot dina uppgifter.' });
     }
 
-    return res.status(200).json({ success: true, id: userResult.data?.id });
+    return res.status(200).json({ success: true, id: (userResult as PromiseFulfilledResult<any>).value.data?.id });
   } catch (err: any) {
     console.error('Oväntat serverfel:', err);
-    return res.status(500).json({ error: 'Internt serverfel', message: err.message });
+    return res.status(500).json({ error: 'Internt serverfel', message: 'Något gick fel, försök igen senare.' });
   }
 }

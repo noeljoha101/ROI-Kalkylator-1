@@ -22,7 +22,7 @@ import {
   Tooltip, 
   ResponsiveContainer
 } from 'recharts';
-import { CLIENT_CONFIG } from '../api/client.config';
+import { CLIENT_CONFIG } from './client.config';
 
 const INDIRECT_COST_FACTOR = 1.4; // Vikarier, admin, produktionsbortfall
 const WORKDAYS_PER_MONTH = 21;

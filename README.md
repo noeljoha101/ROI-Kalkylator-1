@@ -10,7 +10,7 @@ En kraftfull och interaktiv B2B-kalkylator som hjälper företag att räkna ut d
   - Implementerar Upstash Redis för distribuerad, beständig Rate Limiting som fungerar säkert i en Serverless-miljö.
 - **Datasäkerhet:** Alla fritextfält escapas/saneras för att förhindra HTML-injektion innan de renderas i mailutskick.
 - **Dubbla e-postutskick:** Skapar och skickar automatiskt ett snyggt och professionellt HTML-mail med en bifogad PDF till kunden, samt ett detaljerat lead-mail till admin.
-- **Centraliserad Konfiguration:** All kund- och branschspecifik konfiguration (löner, företagsnamn) hanteras enkelt i `src/client.config.ts`.
+- **Centraliserad Konfiguration:** All kund- och branschspecifik konfiguration (löner, företagsnamn, branding) hanteras i `src/client.config.ts`. OBS: av tekniska skäl (Vercels serverless-funktioner kan inte bunta ihop separata lokala config-filer) har `api/send-roi.ts` en egen, duplicerad kopia av de fält som används i mailutskicken (`senderEmail`, `emailHeaderTitle`). Vid ändring av dessa värden, uppdatera BÅDA ställena manuellt.
 
 ## 🧮 Beräkningsformel (Sjukfrånvarokostnad)
 Kalkylen baseras på branschstandardiserade schablonvärden:

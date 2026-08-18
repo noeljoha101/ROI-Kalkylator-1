@@ -1,10 +1,9 @@
 import { Resend } from 'resend';
+import PDFDocument from 'pdfkit';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { Request, Response } from 'express';
 import crypto from 'crypto';
-import { generatePDF } from './lib/generatePdf';
-import { getCustomerHtml, getAdminHtml } from './lib/emailTemplates';
 
 // OBS: Duplicerad från src/client.config.ts (inte importerad) eftersom Vercels
 // serverless-funktionsbuntare inte tillförlitligt bundlar separata lokala .ts-filer
@@ -29,6 +28,46 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+
+const generatePDF = (
+  calcData: any, 
+  userName: string, 
+  companyText: string, 
+  formatCurrency: any
+): Promise<Buffer> => {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 50 });
+      const buffers: Buffer[] = [];
+      doc.on('data', buffers.push.bind(buffers));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+
+      doc.fontSize(24).fillColor('#0f172a').text('ROI Kalkyl - Sjukfrånvaro', { align: 'center' });
+      doc.moveDown(1);
+      doc.fontSize(14).fillColor('#334155').text(`Framtagen för ${userName}${companyText}`);
+      doc.moveDown(2);
+      
+      doc.fontSize(16).fillColor('#0f172a').text('Er sammanställning', { underline: true });
+      doc.moveDown(0.5);
+      
+      doc.fontSize(12).fillColor('#334155').text(`Antal anställda: ${calcData.employees}`);
+      doc.text(`Sjukfrånvaro: ${calcData.sickLeavePercent}%`);
+      
+      doc.moveDown(1);
+      doc.fontSize(14).fillColor('#ef4444').text(`Total årlig kostnad: ${formatCurrency(calcData.calculatedAnnualCost)}`);
+      
+      doc.moveDown(1);
+      doc.fontSize(16).fillColor('#15803d').text(`Potentiell årlig besparing: ${formatCurrency(calcData.savingsMin)} - ${formatCurrency(calcData.savingsMax)}`);
+      
+      doc.moveDown(2);
+      doc.fontSize(10).fillColor('#64748b').text(`Kalkylen inkluderar lagstadgade arbetsgivaravgifter (31,42%) och schablon för indirekta kostnader (vikarier, administration och produktionsbortfall) med en faktor på ${INDIRECT_COST_FACTOR}x månadslönen. Beräknat på ${WORKDAYS_PER_YEAR} arbetsdagar per år.`);
+      
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+};
 
 let ratelimit: Ratelimit | null = null;
 
@@ -109,7 +148,7 @@ export default async function handler(req: Request, res: Response) {
 
     const senderEmail = CLIENT_CONFIG.senderEmail;
     
-    // Sanitize user inputs
+    // Sanitize user inputs (Trunkera Längder)
     const MAX_LEN = 200;
     const safeFirstName = escapeHtml(String(firstName || '').slice(0, MAX_LEN));
     const safeLastName = escapeHtml(String(lastName || '').slice(0, MAX_LEN));
@@ -152,15 +191,69 @@ export default async function handler(req: Request, res: Response) {
     const adminCompany = safeCompany || 'Ej angivet';
 
     // E-postmall för kund
-    const customerHtml = getCustomerHtml(CLIENT_CONFIG.emailHeaderTitle, userName, companyText, calcData, formatCurrency);
+    const customerHtml = `
+    <!DOCTYPE html>
+    <html lang="sv">
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f4f5; color: #334155; margin: 0; padding: 40px 20px; line-height: 1.6;">
+      <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);">
+        <div style="background-color: #f8fafc; padding: 30px; border-bottom: 1px solid #e2e8f0; text-align: center;">
+          <h1 style="margin: 0; color: #0f172a; font-size: 24px; font-weight: 700;">${CLIENT_CONFIG.emailHeaderTitle}</h1>
+        </div>
+        <div style="padding: 40px 30px;">
+          <p style="margin-top: 0; font-size: 16px;">Hej ${userName}!</p>
+          <p style="font-size: 16px;">Tack för att du använde vår kalkylator. Här är din sammanställning över sjukfrånvarons kostnader${companyText}. En formell PDF-rapport finns också bifogad i detta mail.</p>
+          
+          <div style="margin: 30px 0;">
+            <h2 style="font-size: 18px; color: #1e293b; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0;">Ert resultat</h2>
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="padding: 12px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 15px;">Antal anställda</td>
+                <td style="padding: 12px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #0f172a; font-size: 15px; text-align: right;">${calcData.employees}</td>
+              </tr>
+              <tr>
+                <td style="padding: 12px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; font-size: 15px;">Sjukfrånvaro</td>
+                <td style="padding: 12px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #0f172a; font-size: 15px; text-align: right;">${calcData.sickLeavePercent}%</td>
+              </tr>
+              <tr>
+                <td style="padding: 12px 0; color: #64748b; font-size: 15px;">Total årlig kostnad</td>
+                <td style="padding: 12px 0; font-weight: 600; color: #ef4444; font-size: 15px; text-align: right;">${formatCurrency(calcData.calculatedAnnualCost)}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div style="margin-top: 30px; padding: 25px; background-color: #dcfce7; border-radius: 8px; text-align: center; border: 1px solid #bbf7d0;">
+            <div style="font-size: 14px; text-transform: uppercase; color: #166534; font-weight: 700; margin-bottom: 8px; letter-spacing: 0.05em;">Potentiell årlig besparing</div>
+            <div style="font-size: 28px; font-weight: bold; color: #15803d; margin-bottom: 8px;">${formatCurrency(calcData.savingsMin)} - ${formatCurrency(calcData.savingsMax)}</div>
+            <div style="font-size: 14px; color: #166534; opacity: 0.9;">Genom proaktiva hälsoinsatser och minskad sjukfrånvaro.</div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+    `;
 
     // E-postmall för admin
-    const adminHtml = getAdminHtml(adminName, safeEmail, adminPhone, adminCompany, calcData, formatCurrency);
+    const adminHtml = `
+    <h3>Nytt lead från kalkylatorn</h3>
+    <p><strong>Namn:</strong> ${adminName}</p>
+    <p><strong>Email:</strong> ${safeEmail}</p>
+    <p><strong>Telefon:</strong> ${adminPhone}</p>
+    <p><strong>Företag:</strong> ${adminCompany}</p>
+    <hr />
+    <h4>Uträknade värden (Server-validerade)</h4>
+    <ul>
+      <li><strong>Anställda:</strong> ${calcData.employees}</li>
+      <li><strong>Sjukfrånvaro:</strong> ${calcData.sickLeavePercent}%</li>
+      <li><strong>Total årlig kostnad:</strong> ${formatCurrency(calcData.calculatedAnnualCost)}</li>
+      <li><strong>Potentiell besparing:</strong> ${formatCurrency(calcData.savingsMin)} - ${formatCurrency(calcData.savingsMax)}</li>
+    </ul>
+    `;
 
     // Generera PDF-rapport
     let pdfBuffer: Buffer | null = null;
     try {
-      pdfBuffer = await generatePDF(calcData, userName, companyText, formatCurrency, INDIRECT_COST_FACTOR, WORKDAYS_PER_YEAR);
+      pdfBuffer = await generatePDF(calcData, userName, companyText, formatCurrency);
     } catch (pdfErr) {
       console.error('Kunde inte generera PDF:', pdfErr);
     }

@@ -1,7 +1,26 @@
 import { Resend } from 'resend';
 import PDFDocument from 'pdfkit';
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
+import { Request, Response } from 'express';
+import { CLIENT_CONFIG } from './client.config';
+import crypto from 'crypto';
 
-// Hjälpfunktion för att generera en enkel PDF i minnet
+const INDIRECT_COST_FACTOR = 1.4; // Vikarier, admin, produktionsbortfall
+const WORKDAYS_PER_MONTH = 21;
+const WORKDAYS_PER_YEAR = 220;
+const SAVINGS_LOW = 0.15;
+const SAVINGS_HIGH = 0.30;
+
+function escapeHtml(str: string): string {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 const generatePDF = (calcData: any, userName: string, companyText: string, formatCurrency: any): Promise<Buffer> => {
   return new Promise((resolve, reject) => {
     try {
@@ -28,7 +47,7 @@ const generatePDF = (calcData: any, userName: string, companyText: string, forma
       doc.fontSize(16).fillColor('#15803d').text(`Potentiell årlig besparing: ${formatCurrency(calcData.savingsMin)} - ${formatCurrency(calcData.savingsMax)}`);
       
       doc.moveDown(2);
-      doc.fontSize(10).fillColor('#64748b').text('Kalkylen inkluderar lagstadgade arbetsgivaravgifter (31,42%) och schablon för indirekta kostnader (vikarier, administration och produktionsbortfall) med en faktor på 1.4x månadslönen. Beräknat på 220 arbetsdagar per år.');
+      doc.fontSize(10).fillColor('#64748b').text(`Kalkylen inkluderar lagstadgade arbetsgivaravgifter (31,42%) och schablon för indirekta kostnader (vikarier, administration och produktionsbortfall) med en faktor på ${INDIRECT_COST_FACTOR}x månadslönen. Beräknat på ${WORKDAYS_PER_YEAR} arbetsdagar per år.`);
       
       doc.end();
     } catch (err) {
@@ -37,92 +56,119 @@ const generatePDF = (calcData: any, userName: string, companyText: string, forma
   });
 };
 
-// Rate limiting cache (minne - skyddar mot snabbt spam på samma server-instans)
-const rateLimitCache = new Map<string, { count: number, timestamp: number }>();
-const RATE_LIMIT_MAX = 3; // Max antal mail per IP...
-const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // ...per timme
+// Initialize Upstash Redis Ratelimit
+let ratelimit: Ratelimit | null = null;
+if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+  const redis = new Redis({
+    url: process.env.KV_REST_API_URL,
+    token: process.env.KV_REST_API_TOKEN,
+  });
+  ratelimit = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(3, '1 h'),
+  });
+}
 
-export default async function handler(req: any, res: any) {
-  // 1. Endast POST-anrop tillåts
+export default async function handler(req: Request, res: Response) {
+  // 1. Origin-kontroll
+  const allowedOrigin = process.env.ALLOWED_ORIGIN;
+  if (allowedOrigin && req.headers.origin && req.headers.origin !== allowedOrigin) {
+    return res.status(403).json({ error: 'Otillåten origin' });
+  }
+
+  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
+    console.error('KV_REST_API_URL/KV_REST_API_TOKEN saknas — har Redis-databasen kopplats till projektet i Vercel Storage?');
+    return res.status(500).json({ error: 'Serverkonfigurationsfel' });
+  }
+
+  // 2. Endast POST-anrop tillåts
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // 1b. Rate limiting check (Spamskydd Backend)
-  // På Vercel ligger besökarens riktiga IP ofta i x-forwarded-for
-  const forwardedFor = req.headers['x-forwarded-for'];
-  const ip = (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor?.split(',')[0]) 
-             || req.socket?.remoteAddress 
-             || 'unknown';
-             
-  const now = Date.now();
-  
-  if (ip !== 'unknown') {
-    const userRateData = rateLimitCache.get(ip);
-    if (userRateData) {
-      if (now - userRateData.timestamp < RATE_LIMIT_WINDOW_MS) {
-        if (userRateData.count >= RATE_LIMIT_MAX) {
-          console.warn(`Spamskydd aktiverat: IP ${ip} har överskridit gränsen på ${RATE_LIMIT_MAX} mail per timme.`);
-          return res.status(429).json({ error: 'Du har skickat för många kalkylator-förfrågningar. Vänligen vänta ett tag innan du försöker igen.' });
-        }
-        userRateData.count++;
-      } else {
-        // Tidsfönstret har passerat, nollställ
-        rateLimitCache.set(ip, { count: 1, timestamp: now });
-      }
-    } else {
-      // Första gången denna IP syns
-      rateLimitCache.set(ip, { count: 1, timestamp: now });
-    }
-    
-    // Rensa cachen ibland för att undvika minnesläckage om det kommer trafik från tusentals olika IP:n
-    if (rateLimitCache.size > 1000) {
-      rateLimitCache.clear();
+  // 3. Honeypot check
+  const { email, firstName, lastName, phone, company, calculatorData, website } = req.body || {};
+  if (website) {
+    // Boten fastnade i honeypotten
+    return res.status(200).json({ success: true });
+  }
+
+  // 4. Rate limiting check (Upstash Redis)
+  if (ratelimit) {
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const rawIp = (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor?.split(',')[0]) 
+               || req.socket?.remoteAddress 
+               || 'unknown';
+    const hashedIp = crypto.createHash('sha256').update(rawIp).digest('hex');
+    const { success } = await ratelimit.limit(hashedIp);
+    if (!success) {
+      console.warn(`Spamskydd aktiverat: IP-hash ${hashedIp.substring(0, 8)}... har överskridit gränsen.`);
+      return res.status(429).json({ error: 'För många förfrågningar, försök igen senare.' });
     }
   }
 
-  // 2. Kontrollera API-nyckeln
+  // 5. Kontrollera miljövariabler
   const resendApiKey = process.env.RESEND_API_KEY;
   if (!resendApiKey) {
     console.error('RESEND_API_KEY saknas i miljövariablerna');
     return res.status(500).json({ error: 'Serverkonfigurationsfel: API-nyckel saknas' });
   }
 
-  // 3. Initiera Resend SDK enligt officiell specifikation
+  const adminEmail = process.env.ADMIN_EMAIL;
+  if (!adminEmail) {
+    console.error('ADMIN_EMAIL saknas i miljövariablerna');
+    return res.status(500).json({ error: 'Serverkonfigurationsfel' });
+  }
+
   const resend = new Resend(resendApiKey);
 
   try {
-    const { email, firstName, lastName, phone, company, calculatorData } = req.body || {};
-
     if (!email || !calculatorData) {
       return res.status(400).json({ error: 'Obligatoriska fält saknas (email eller calculatorData)' });
     }
 
-    const senderEmail = 'Hälsokalkylatorn <resultat@ditt-resultat.se>';
-    const adminEmail = process.env.ADMIN_EMAIL || 'noeljohansson.tech@gmail.com';
-    const userName = firstName ? firstName.trim() : 'Kund';
-    const companyText = company ? ` på ${company}` : '';
+    const senderEmail = CLIENT_CONFIG.senderEmail;
+    
+    // Sanitize user inputs
+    const safeFirstName = escapeHtml(firstName);
+    const safeLastName = escapeHtml(lastName);
+    const safeCompany = escapeHtml(company);
+    const safeEmail = escapeHtml(email);
+    const safePhone = escapeHtml(phone);
+
+    const userName = safeFirstName ? safeFirstName.trim() : 'Kund';
+    const companyText = safeCompany ? ` på ${safeCompany}` : '';
 
     const clamp = (val: any, min: number, max: number) => {
       const num = Number(val) || 0;
       return Math.min(Math.max(num, min), max);
     };
 
+    const employees = clamp(calculatorData.employees, 1, 50000);
+    const sickLeavePercent = clamp(calculatorData.sickLeavePercent, 0, 100);
+    const monthlySalary = clamp(calculatorData.monthlySalary, 1, 1000000);
+
+    // Byt klientens värden mot serverns beräkningar
+    const costPerSickDay = (monthlySalary / WORKDAYS_PER_MONTH) * INDIRECT_COST_FACTOR;
+    const calculatedAnnualCost = employees * WORKDAYS_PER_YEAR * (sickLeavePercent / 100) * costPerSickDay;
+    const savingsMin = calculatedAnnualCost * SAVINGS_LOW;
+    const savingsMax = calculatedAnnualCost * SAVINGS_HIGH;
+
     const calcData = {
-      employees: clamp(calculatorData.employees, 1, 50000),
-      sickLeavePercent: clamp(calculatorData.sickLeavePercent, 0, 100),
-      monthlySalary: clamp(calculatorData.monthlySalary, 1, 1000000),
-      calculatedAnnualCost: clamp(calculatorData.calculatedAnnualCost, 0, 1000000000),
-      savingsMin: clamp(calculatorData.savingsMin, 0, 1000000000),
-      savingsMax: clamp(calculatorData.savingsMax, 0, 1000000000),
+      employees,
+      sickLeavePercent,
+      monthlySalary,
+      calculatedAnnualCost,
+      savingsMin,
+      savingsMax,
     };
 
     const formatCurrency = (val: number) =>
       new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(val);
 
-    const adminName = (firstName || lastName) ? `${firstName || ''} ${lastName || ''}`.trim() : 'Ej angivet';
-    const adminPhone = phone || 'Ej angivet';
-    const adminCompany = company || 'Ej angivet';
+    const adminName = (safeFirstName || safeLastName) ? `${safeFirstName || ''} ${safeLastName || ''}`.trim() : 'Ej angivet';
+    const adminPhone = safePhone || 'Ej angivet';
+    const adminCompany = safeCompany || 'Ej angivet';
 
     // E-postmall för kund
     const customerHtml = `
@@ -132,7 +178,7 @@ export default async function handler(req: any, res: any) {
     <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f4f5; color: #334155; margin: 0; padding: 40px 20px; line-height: 1.6;">
       <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);">
         <div style="background-color: #f8fafc; padding: 30px; border-bottom: 1px solid #e2e8f0; text-align: center;">
-          <h1 style="margin: 0; color: #0f172a; font-size: 24px; font-weight: 700;">Hälsokalkylatorn</h1>
+          <h1 style="margin: 0; color: #0f172a; font-size: 24px; font-weight: 700;">${CLIENT_CONFIG.emailHeaderTitle}</h1>
         </div>
         <div style="padding: 40px 30px;">
           <p style="margin-top: 0; font-size: 16px;">Hej ${userName}!</p>
@@ -171,11 +217,11 @@ export default async function handler(req: any, res: any) {
     const adminHtml = `
     <h3>Nytt lead från kalkylatorn</h3>
     <p><strong>Namn:</strong> ${adminName}</p>
-    <p><strong>Email:</strong> ${email}</p>
+    <p><strong>Email:</strong> ${safeEmail}</p>
     <p><strong>Telefon:</strong> ${adminPhone}</p>
     <p><strong>Företag:</strong> ${adminCompany}</p>
     <hr />
-    <h4>Uträknade värden</h4>
+    <h4>Uträknade värden (Server-validerade)</h4>
     <ul>
       <li><strong>Anställda:</strong> ${calcData.employees}</li>
       <li><strong>Sjukfrånvaro:</strong> ${calcData.sickLeavePercent}%</li>
@@ -190,7 +236,6 @@ export default async function handler(req: any, res: any) {
       pdfBuffer = await generatePDF(calcData, userName, companyText, formatCurrency);
     } catch (pdfErr) {
       console.error('Kunde inte generera PDF:', pdfErr);
-      // Vi fortsätter ändå, mailet skickas utan bilaga om PDF:en misslyckas.
     }
 
     const attachments = pdfBuffer ? [{
@@ -198,7 +243,7 @@ export default async function handler(req: any, res: any) {
       content: pdfBuffer,
     }] : undefined;
 
-    // 4. Skicka mail till kunden (Officiellt SDK-mönster)
+    // 6. Skicka mail till kunden
     const userResult = await resend.emails.send({
       from: senderEmail,
       to: [email],
@@ -207,7 +252,6 @@ export default async function handler(req: any, res: any) {
       attachments,
     });
 
-    // Kontrollera om Resend returnerade ett fel
     if (userResult.error) {
       console.error('Resend fel vid kundmail:', userResult.error);
       return res.status(400).json({
@@ -216,11 +260,11 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 5. Skicka mail till admin (Officiellt SDK-mönster)
+    // 7. Skicka mail till admin
     const adminResult = await resend.emails.send({
       from: senderEmail,
       to: [adminEmail],
-      subject: `Nytt lead från kalkylatorn: ${company || email}`,
+      subject: `Nytt lead från kalkylatorn: ${safeCompany || safeEmail}`,
       html: adminHtml,
       attachments,
     });
